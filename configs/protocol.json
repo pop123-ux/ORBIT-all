@@ -1,0 +1,153 @@
+{
+  "name": "ORBIT-all-v0",
+  "status": "pre-results research protocol",
+  "primary_question": "Does function-aware geometry across major LLM matrix families improve optimization beyond Muon and QK-only ORBIT under matched tuning and held-out seeds?",
+  "data": {
+    "dataset": "HuggingFaceFW/fineweb-edu",
+    "subset": "sample-10BT",
+    "revision": null,
+    "tokenizer": "gpt2",
+    "note": "Set an immutable dataset revision before any run is designated paper evidence. Synthetic data is plumbing-only."
+  },
+  "model": {
+    "dense_124m": {
+      "vocab_size": 50257,
+      "block_size": 512,
+      "n_layer": 12,
+      "n_head": 12,
+      "n_kv_head": 12,
+      "n_embd": 768,
+      "mlp_hidden": 2048,
+      "qk_norm": false,
+      "rope_mode": "fixed",
+      "moe_experts": 0,
+      "batch_size": 4,
+      "grad_accum": 2
+    },
+    "gqa_124m_class": {
+      "vocab_size": 50257,
+      "block_size": 512,
+      "n_layer": 12,
+      "n_head": 12,
+      "n_kv_head": 4,
+      "n_embd": 768,
+      "mlp_hidden": 2304,
+      "qk_norm": false,
+      "rope_mode": "fixed",
+      "moe_experts": 0,
+      "batch_size": 4,
+      "grad_accum": 2
+    },
+    "qknorm_124m_class": {
+      "vocab_size": 50257,
+      "block_size": 512,
+      "n_layer": 12,
+      "n_head": 12,
+      "n_kv_head": 12,
+      "n_embd": 768,
+      "mlp_hidden": 2048,
+      "qk_norm": true,
+      "rope_mode": "fixed",
+      "moe_experts": 0,
+      "batch_size": 4,
+      "grad_accum": 2
+    },
+    "learned_rope_124m_class": {
+      "vocab_size": 50257,
+      "block_size": 512,
+      "n_layer": 12,
+      "n_head": 12,
+      "n_kv_head": 12,
+      "n_embd": 768,
+      "mlp_hidden": 2048,
+      "qk_norm": false,
+      "rope_mode": "learned_log_frequency",
+      "moe_experts": 0,
+      "batch_size": 4,
+      "grad_accum": 2
+    },
+    "moe_124m_active_class": {
+      "vocab_size": 50257,
+      "block_size": 512,
+      "n_layer": 8,
+      "n_head": 12,
+      "n_kv_head": 4,
+      "n_embd": 768,
+      "mlp_hidden": 1536,
+      "qk_norm": true,
+      "rope_mode": "fixed",
+      "moe_experts": 4,
+      "batch_size": 4,
+      "grad_accum": 2
+    }
+  },
+  "optimizer": {
+    "family_masks": {
+      "muon": [],
+      "orbit_qk": ["qk"],
+      "orbit_all": ["qk", "vo", "swiglu", "embedding", "rope", "moe"]
+    },
+    "shared": {
+      "momentum": 0.95,
+      "ns_steps": 5,
+      "weight_decay": 0.005,
+      "functional_power": 1.0,
+      "metric_eps": 0.00001,
+      "metric_condition_cap": 100.0,
+      "stats_beta": 0.95,
+      "joint_family_frobenius_restore": true
+    }
+  },
+  "matched_search_grid": [
+    {"id": "shared-00", "matrix_lr": 0.012, "aux_lr": 0.0060, "weight_decay": 0.0040},
+    {"id": "shared-01", "matrix_lr": 0.014, "aux_lr": 0.0068, "weight_decay": 0.0050},
+    {"id": "shared-02", "matrix_lr": 0.016, "aux_lr": 0.0076, "weight_decay": 0.0060},
+    {"id": "shared-03", "matrix_lr": 0.018, "aux_lr": 0.0085, "weight_decay": 0.0045},
+    {"id": "shared-04", "matrix_lr": 0.020, "aux_lr": 0.0092, "weight_decay": 0.0055},
+    {"id": "shared-05", "matrix_lr": 0.022, "aux_lr": 0.0100, "weight_decay": 0.0065},
+    {"id": "shared-06", "matrix_lr": 0.024, "aux_lr": 0.0108, "weight_decay": 0.0040},
+    {"id": "shared-07", "matrix_lr": 0.026, "aux_lr": 0.0116, "weight_decay": 0.0050},
+    {"id": "shared-08", "matrix_lr": 0.028, "aux_lr": 0.0124, "weight_decay": 0.0060},
+    {"id": "shared-09", "matrix_lr": 0.030, "aux_lr": 0.0132, "weight_decay": 0.0050}
+  ],
+  "phases": {
+    "smoke": {"model": "dense_124m", "steps": 2, "synthetic_only": true},
+    "discovery": {"model": "dense_124m", "steps": 300, "seed": 0, "optimizers": ["muon", "orbit_qk", "orbit_all"]},
+    "matched_tune": {"model": "dense_124m", "steps": 900, "seed": 1, "optimizers": ["muon", "orbit_qk", "orbit_all"], "grid": "matched_search_grid"},
+    "confirm": {"model": "dense_124m", "steps": 900, "seeds": [500, 501, 502, 503, 504, 505, 506, 507, 508, 509], "configs": "frozen from matched_tune"},
+    "family_ablation": {
+      "model": "dense_124m",
+      "steps": 900,
+      "seeds": [600, 601, 602, 603, 604, 605],
+      "variants": [
+        "orbit_qk",
+        "orbit_qk_vo",
+        "orbit_qk_vo_swiglu",
+        "orbit_all",
+        "orbit_all_minus_qk",
+        "orbit_all_minus_vo",
+        "orbit_all_minus_swiglu",
+        "orbit_all_minus_embedding"
+      ]
+    },
+    "gqa_transfer": {"model": "gqa_124m_class", "steps": 900, "seeds": [700, 701, 702, 703, 704]},
+    "qknorm_transfer": {"model": "qknorm_124m_class", "steps": 900, "seeds": [710, 711, 712, 713, 714]},
+    "rope_transfer": {"model": "learned_rope_124m_class", "steps": 900, "seeds": [720, 721, 722, 723, 724]},
+    "moe_transfer": {"model": "moe_124m_active_class", "steps": 900, "seeds": [730, 731, 732, 733, 734]},
+    "context_transfer": {"model": "dense_124m", "block_sizes": [1024, 2048], "steps": 900, "seeds": [740, 741, 742]},
+    "horizon": {"model": "dense_124m", "steps": 2700, "seeds": [800, 801, 802], "optimizers": ["muon", "orbit_qk", "orbit_all"]}
+  },
+  "statistics": {
+    "primary_estimand": "paired final validation loss difference ORBIT-all minus Muon",
+    "primary_interval": "two-sided 95% Student-t confidence interval over paired seed differences",
+    "secondary": ["ORBIT-all minus ORBIT-QK", "win counts", "wall-clock overhead", "peak allocated CUDA memory"],
+    "multiplicity": "family and transfer ablations are secondary; report intervals descriptively unless a multiplicity plan is added before running them"
+  },
+  "gates": {
+    "before_confirmation": "freeze one recipe per optimizer from matched_tune",
+    "before_transfer": "confirmation must show a stable effect and family ablations must support at least one non-QK geometry",
+    "before_scale": "run correctness audit and transfer suite; do not escalate on a single-seed win",
+    "inference_overhead_required": 0,
+    "target_training_overhead_vs_muon_percent": 20
+  }
+}

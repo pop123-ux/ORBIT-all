@@ -22,7 +22,12 @@ def main() -> None:
     parser.add_argument("--tokenizer", default="gpt2")
     parser.add_argument("--train-tokens", type=int, default=50_000_000)
     parser.add_argument("--val-tokens", type=int, default=2_000_000)
-    parser.add_argument("--val-permille", type=int, default=20)
+    parser.add_argument(
+        "--val-permille",
+        type=int,
+        default=400,
+        help="Deterministic document split fraction in parts per 10,000; 400 = 4%% validation.",
+    )
     parser.add_argument(
         "--paper-mode",
         action="store_true",
@@ -69,17 +74,17 @@ def main() -> None:
             if not ids:
                 continue
             array = np.asarray(ids, dtype=np.int32)
-            is_val = split_bucket(text) < int(args.val_permille)
+            is_val = split_bucket(text) < args.val_permille
             if is_val and val_count < args.val_tokens:
                 remaining = args.val_tokens - val_count
                 chunk = array[:remaining]
                 chunk.tofile(val_f)
-                val_count += int(len(chunk))
+                val_count += len(chunk)
             elif (not is_val) and train_count < args.train_tokens:
                 remaining = args.train_tokens - train_count
                 chunk = array[:remaining]
                 chunk.tofile(train_f)
-                train_count += int(len(chunk))
+                train_count += len(chunk)
             docs += 1
             if docs % 1000 == 0:
                 print(

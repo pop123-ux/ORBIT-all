@@ -63,13 +63,15 @@ def sample_batch(
     device: torch.device,
 ) -> torch.Tensor:
     if tokens is None:
-        return torch.randint(
+        # Keep RNG on CPU so the same synthetic batch stream is portable across devices.
+        batch = torch.randint(
             0,
             vocab_size,
             (batch_size, seq_len),
             generator=generator,
-            device=device,
+            device="cpu",
         )
+        return batch.to(device)
     if len(tokens) <= seq_len + 1:
         raise ValueError("token file is too short for requested sequence length")
     starts = torch.randint(
@@ -77,6 +79,7 @@ def sample_batch(
         len(tokens) - seq_len - 1,
         (batch_size,),
         generator=generator,
+        device="cpu",
     ).tolist()
     batch = np.stack([tokens[i : i + seq_len] for i in starts])
     return torch.from_numpy(batch.astype(np.int64, copy=False)).to(device)
@@ -95,7 +98,8 @@ def lr_multiplier(step: int, total_steps: int, warmup_ratio: float = 0.05) -> fl
     if step < warmup:
         return float(step + 1) / float(warmup)
     progress = (step - warmup) / max(1, total_steps - warmup - 1)
-    return 0.1 + 0.9 * 0.5 * (1.0 + math.cos(math.pi * min(max(progress, 0.0), 1.0)))
+    progress = min(max(progress, 0.0), 1.0)
+    return 0.1 + 0.9 * 0.5 * (1.0 + math.cos(math.pi * progress))
 
 
 @torch.no_grad()
@@ -130,12 +134,22 @@ def evaluate(
     return float(np.mean(losses))
 
 
+def _context_batch_policy(model_entry: dict[str, Any], block_size: int) -> tuple[int, int]:
+    base_batch = int(model_entry.get("batch_size", 4))
+    base_accum = int(model_entry.get("grad_accum", 1))
+    base_block = int(model_entry["block_size"])
+    target_tokens = base_batch * base_accum * base_block
+    batch = max(1, (base_batch * base_block) // block_size)
+    accum = max(1, math.ceil(target_tokens / max(1, batch * block_size)))
+    return batch, accum
+
+
 def run_training(
     *,
     protocol: dict[str, Any],
     model_name: str,
     optimizer_mode: str,
-    hparams: dict[str, float],
+    hparams: dict[str, Any],
     seed: int,
     steps: int,
     work_dir: str | Path,
@@ -147,15 +161,27 @@ def run_training(
 ) -> dict[str, Any]:
     seed_everything(seed)
     work_dir = Path(work_dir)
-    device = torch.device(device_name if device_name != "cuda" or torch.cuda.is_available() else "cpu")
+    if device_name == "cuda" and not torch.cuda.is_available():
+        raise RuntimeError("CUDA was requested but no CUDA device is available; use --device cpu for smoke tests")
+    device = torch.device(device_name)
     model_entry = protocol["model"][model_name]
-    batch_size = int(model_entry.get("batch_size", 4))
-    grad_accum = int(model_entry.get("grad_accum", 1))
+    block_size = int(block_size_override or model_entry["block_size"])
+    if block_size_override and block_size_override > int(model_entry["block_size"]):
+        batch_size, grad_accum = _context_batch_policy(model_entry, block_size)
+        use_checkpointing = True
+    else:
+        batch_size = int(model_entry.get("batch_size", 4))
+        grad_accum = int(model_entry.get("grad_accum", 1))
+        use_checkpointing = bool(model_entry.get("gradient_checkpointing", False))
+
     config = model_config_from_protocol(
-        protocol, model_name, block_size=block_size_override or model_entry["block_size"]
+        protocol,
+        model_name,
+        block_size=block_size,
+        gradient_checkpointing=use_checkpointing,
     )
     if device.type == "cpu" and steps_override is not None:
-        # CPU smoke should validate plumbing, not instantiate a 124M network.
+        # CPU smoke validates plumbing without instantiating the 124M-class network.
         config = ModelConfig(
             vocab_size=min(config.vocab_size, 1024),
             block_size=min(config.block_size, 64),
@@ -168,6 +194,7 @@ def run_training(
             qk_norm=config.qk_norm,
             stats_beta=config.stats_beta,
             moe_experts=config.moe_experts,
+            gradient_checkpointing=False,
         )
         batch_size, grad_accum = 2, 1
 
@@ -246,7 +273,7 @@ def run_training(
         float(torch.cuda.max_memory_allocated(device)) / (1024**3) if device.type == "cuda" else 0.0
     )
 
-    result = {
+    return {
         "schema": 1,
         "project": protocol["name"],
         "git_sha": git_sha(),
@@ -259,6 +286,9 @@ def run_training(
         "hparams": dict(hparams),
         "seed": int(seed),
         "steps": total_steps,
+        "batch_size": batch_size,
+        "grad_accum": grad_accum,
+        "tokens_per_update": batch_size * grad_accum * config.block_size,
         "synthetic": bool(synthetic),
         "final_train_loss_50": float(np.mean(recent_losses)),
         "final_val_loss": final_val,
@@ -270,7 +300,6 @@ def run_training(
         "device": str(device),
         "gpu_name": torch.cuda.get_device_name(device) if device.type == "cuda" else None,
     }
-    return result
 
 
 def write_result_atomic(path: str | Path, result: dict[str, Any]) -> None:

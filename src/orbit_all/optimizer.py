@@ -82,7 +82,7 @@ class OrbitAll(torch.optim.Optimizer):
         self._diagnostic_sum: dict[str, float] = {}
         self._diagnostic_count: dict[str, int] = {}
         self._index_roles(params)
-        model.set_stat_collection(True)
+        model.set_stat_collection(self.families)
 
     def _index_roles(self, params: list[torch.nn.Parameter]) -> None:
         for rec in self._roles["embedding"]:
@@ -244,7 +244,8 @@ class OrbitAll(torch.optim.Optimizer):
             if id(frequency) not in candidates:
                 continue
             update = candidates[id(frequency)]
-            scale = self._diag_scale(module.rope_metric(self.deltas, self.metric_eps).to(update.device))
+            metric = module.rope_metric(self.deltas, eps=self.metric_eps).to(update.device)
+            scale = self._diag_scale(metric)
             transformed = update.float() * scale
             (transformed,) = restore_joint_frobenius((update,), (transformed,))
             candidates[id(frequency)] = transformed.to(update.dtype)

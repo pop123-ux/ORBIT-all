@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import math
-
 import torch
 
 
@@ -55,7 +53,7 @@ def inverse_metric_power_2x2(
     eye = torch.eye(2, device=m.device, dtype=m.dtype).expand(m.shape[:-2] + (2, 2))
     gap = hi_raw - lo_raw
     tolerance = 64.0 * torch.finfo(m.dtype).eps
-    projector_hi = (m / scale[..., None, None] - lo_raw[..., None, None] * eye)
+    projector_hi = m / scale[..., None, None] - lo_raw[..., None, None] * eye
     projector_hi = projector_hi / gap.clamp_min(tolerance)[..., None, None]
     transform = f_lo[..., None, None] * eye + (
         f_hi - f_lo
@@ -126,7 +124,6 @@ def causal_delta_second_moment(length: int) -> float:
     """E[(i-j)^2] over all causal pairs j<=i for a length-T sequence."""
     if length <= 1:
         return 0.0
-    # Sum_{d=0}^{T-1} (T-d) d^2 divided by T(T+1)/2.
     t = float(length)
     sum_d2 = (t - 1.0) * t * (2.0 * t - 1.0) / 6.0
     sum_d3 = ((t - 1.0) * t / 2.0) ** 2

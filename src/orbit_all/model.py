@@ -3,6 +3,7 @@ from __future__ import annotations
 from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass
 from types import SimpleNamespace
+from typing import Iterable
 
 import torch
 import torch.nn as nn
@@ -61,8 +62,10 @@ class RMSNorm(nn.Module):
 
 
 def _ema_(target: torch.Tensor, value: torch.Tensor, beta: float, seen: torch.Tensor) -> None:
-    effective_beta = float(beta) if int(seen.item()) > 0 else 0.0
-    target.mul_(effective_beta).add_(value.to(target), alpha=1.0 - effective_beta)
+    # Keep the first-update decision on-device; .item() here would synchronize every layer.
+    b = (seen > 0).to(dtype=target.dtype) * float(beta)
+    one_minus_b = 1.0 - b
+    target.mul_(b).add_(value.to(device=target.device, dtype=target.dtype) * one_minus_b)
 
 
 def _rms_head_norm(x: torch.Tensor, eps: float = 1e-6) -> torch.Tensor:
@@ -70,12 +73,7 @@ def _rms_head_norm(x: torch.Tensor, eps: float = 1e-6) -> torch.Tensor:
 
 
 class FunctionalAttention(nn.Module):
-    """Causal RoPE attention with statistics consumed by ORBIT-all.
-
-    Q/K statistics are collected after optional QK normalization and before RoPE.
-    V/O statistics summarize content transport. GQA mapping is explicit: each KV head
-    owns an equal-size contiguous group of query heads.
-    """
+    """Causal RoPE attention with statistics consumed by ORBIT-all."""
 
     def __init__(self, config: ModelConfig, layer_idx: int) -> None:
         super().__init__()
@@ -103,12 +101,12 @@ class FunctionalAttention(nn.Module):
             self.register_buffer("fixed_inv_freq", inv_freq, persistent=True)
             self.log_inv_freq = None
 
-        q_eye = torch.eye(2, dtype=torch.float32).view(1, 1, 2, 2)
+        eye = torch.eye(2, dtype=torch.float32).view(1, 1, 2, 2)
         self.register_buffer(
-            "q_second", q_eye.repeat(self.n_head, self.n_freq, 1, 1), persistent=True
+            "q_second", eye.repeat(self.n_head, self.n_freq, 1, 1), persistent=True
         )
         self.register_buffer(
-            "k_second", q_eye.repeat(self.n_kv_head, self.n_freq, 1, 1), persistent=True
+            "k_second", eye.repeat(self.n_kv_head, self.n_freq, 1, 1), persistent=True
         )
         self.register_buffer(
             "v_second", torch.ones(self.n_kv_head, self.head_dim), persistent=True
@@ -116,8 +114,10 @@ class FunctionalAttention(nn.Module):
         self.register_buffer(
             "context_second", torch.ones(self.n_head, self.head_dim), persistent=True
         )
-        self.register_buffer("stats_seen", torch.zeros((), dtype=torch.long), persistent=True)
-        self.collect_stats = False
+        self.register_buffer("qk_stats_seen", torch.zeros((), dtype=torch.long), persistent=True)
+        self.register_buffer("vo_stats_seen", torch.zeros((), dtype=torch.long), persistent=True)
+        self.collect_qk_stats = False
+        self.collect_vo_stats = False
 
     def inv_freq(self) -> torch.Tensor:
         if self.log_inv_freq is not None:
@@ -143,24 +143,27 @@ class FunctionalAttention(nn.Module):
 
     @torch.no_grad()
     def _update_pre_attention_stats(self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor) -> None:
-        if not self.collect_stats or not self.training:
+        if not self.training:
             return
-        q2 = q.float().view(q.size(0), self.n_head, q.size(2), self.n_freq, 2)
-        k2 = k.float().view(k.size(0), self.n_kv_head, k.size(2), self.n_freq, 2)
-        q_second = torch.einsum("bhtfi,bhtfj->hfij", q2, q2) / max(1, q.size(0) * q.size(2))
-        k_second = torch.einsum("bhtfi,bhtfj->hfij", k2, k2) / max(1, k.size(0) * k.size(2))
-        v_second = v.float().square().mean(dim=(0, 2))
-        _ema_(self.q_second, q_second, self.config.stats_beta, self.stats_seen)
-        _ema_(self.k_second, k_second, self.config.stats_beta, self.stats_seen)
-        _ema_(self.v_second, v_second, self.config.stats_beta, self.stats_seen)
+        if self.collect_qk_stats:
+            q2 = q.float().view(q.size(0), self.n_head, q.size(2), self.n_freq, 2)
+            k2 = k.float().view(k.size(0), self.n_kv_head, k.size(2), self.n_freq, 2)
+            q_second = torch.einsum("bhtfi,bhtfj->hfij", q2, q2) / max(1, q.size(0) * q.size(2))
+            k_second = torch.einsum("bhtfi,bhtfj->hfij", k2, k2) / max(1, k.size(0) * k.size(2))
+            _ema_(self.q_second, q_second, self.config.stats_beta, self.qk_stats_seen)
+            _ema_(self.k_second, k_second, self.config.stats_beta, self.qk_stats_seen)
+            self.qk_stats_seen.add_(1)
+        if self.collect_vo_stats:
+            v_second = v.float().square().mean(dim=(0, 2))
+            _ema_(self.v_second, v_second, self.config.stats_beta, self.vo_stats_seen)
 
     @torch.no_grad()
     def _update_context_stats(self, context: torch.Tensor) -> None:
-        if not self.collect_stats or not self.training:
+        if not self.collect_vo_stats or not self.training:
             return
         value = context.float().square().mean(dim=(0, 2))
-        _ema_(self.context_second, value, self.config.stats_beta, self.stats_seen)
-        self.stats_seen.add_(1)
+        _ema_(self.context_second, value, self.config.stats_beta, self.vo_stats_seen)
+        self.vo_stats_seen.add_(1)
 
     @torch.no_grad()
     def qk_metrics(
@@ -191,7 +194,6 @@ class FunctionalAttention(nn.Module):
         context_group = self.context_second.view(
             self.n_kv_head, self.group_size, self.head_dim
         ).mean(dim=1)
-        # Ratio is a channelwise proxy for how strongly attention mixing transports V variation.
         v_metric = context_group / self.v_second.float().clamp_min(eps)
         o_metric = self.context_second.float()
         return v_metric.clamp_min(eps), o_metric.clamp_min(eps)
@@ -208,7 +210,6 @@ class FunctionalAttention(nn.Module):
         for delta in ds:
             r = self._rotation(delta).to(q.device).unsqueeze(0)
             jr = j.view(1, 1, 2, 2) @ r
-            # E[(q^T J R k)^2] under the local second-moment approximation.
             sensitivity = torch.einsum(
                 "hfij,hfjk,hfkl,hfli->hf", q, jr, k_for_q, jr.transpose(-1, -2)
             ).clamp_min(0.0)
@@ -290,11 +291,11 @@ class SparseMoE(nn.Module):
             "expert_load", torch.full((config.moe_experts,), 1.0 / config.moe_experts), persistent=True
         )
         self.register_buffer("stats_seen", torch.zeros((), dtype=torch.long), persistent=True)
-        self.collect_stats = False
+        self.collect_router_stats = False
 
     @torch.no_grad()
     def _update_router_stats(self, probs: torch.Tensor, top: torch.Tensor) -> None:
-        if not self.collect_stats or not self.training:
+        if not self.collect_router_stats or not self.training:
             return
         fisher = categorical_fisher_diagonal(probs)
         load = torch.bincount(top.reshape(-1), minlength=self.config.moe_experts).float()
@@ -313,10 +314,12 @@ class SparseMoE(nn.Module):
         flat_weight = weight.reshape(-1, 1)
         out = torch.zeros_like(flat_x)
         for expert_id, expert in enumerate(self.experts):
-            mask = flat_top == expert_id
-            if bool(mask.any()):
-                expert_out = expert(flat_x[mask])
-                out[mask] = expert_out * flat_weight[mask]
+            indices = torch.nonzero(flat_top == expert_id, as_tuple=False).squeeze(-1)
+            if indices.numel() == 0:
+                continue
+            expert_out = expert(flat_x.index_select(0, indices))
+            weighted = expert_out * flat_weight.index_select(0, indices)
+            out.index_copy_(0, indices, weighted)
         return out.view_as(x)
 
 
@@ -334,7 +337,7 @@ class Block(nn.Module):
 
 
 class ResearchLM(nn.Module):
-    """Compact modern decoder exposing an explicit ORBIT-all functional-role contract."""
+    """Modern decoder exposing an explicit ORBIT-all functional-role contract."""
 
     def __init__(self, config: ModelConfig) -> None:
         super().__init__()
@@ -349,7 +352,8 @@ class ResearchLM(nn.Module):
             "token_frequency", torch.full((config.vocab_size,), 1.0 / config.vocab_size), persistent=True
         )
         self.register_buffer("token_stats_seen", torch.zeros((), dtype=torch.long), persistent=True)
-        self.collect_stats = False
+        self.collect_embedding_stats = False
+        self._active_stat_families: frozenset[str] = frozenset()
         self.apply(self._init_weights)
         for name, param in self.named_parameters():
             if name.endswith(("attn.o_proj.weight", "down_proj.weight")):
@@ -366,7 +370,7 @@ class ResearchLM(nn.Module):
 
     @torch.no_grad()
     def _update_token_frequency(self, input_ids: torch.Tensor, labels: torch.Tensor | None) -> None:
-        if not self.collect_stats or not self.training:
+        if not self.collect_embedding_stats or not self.training:
             return
         tokens = input_ids.reshape(-1)
         if labels is not None:
@@ -376,21 +380,28 @@ class ResearchLM(nn.Module):
         _ema_(self.token_frequency, counts, self.config.stats_beta, self.token_stats_seen)
         self.token_stats_seen.add_(1)
 
-    def set_stat_collection(self, enabled: bool) -> None:
-        self.collect_stats = bool(enabled)
+    def set_stat_collection(self, families: Iterable[str]) -> None:
+        active = frozenset(families)
+        self._active_stat_families = active
+        self.collect_embedding_stats = "embedding" in active
+        collect_qk = bool({"qk", "rope"} & active)
+        collect_vo = "vo" in active
+        collect_swiglu = "swiglu" in active
+        collect_moe = "moe" in active
         for block in self.blocks:
-            block.attn.collect_stats = bool(enabled)
+            block.attn.collect_qk_stats = collect_qk
+            block.attn.collect_vo_stats = collect_vo
             if isinstance(block.ffn, SparseMoE):
-                block.ffn.collect_stats = bool(enabled)
+                block.ffn.collect_router_stats = collect_moe
                 for expert in block.ffn.experts:
-                    expert.collect_stats = bool(enabled)
+                    expert.collect_stats = collect_swiglu
             else:
-                block.ffn.collect_stats = bool(enabled)
+                block.ffn.collect_stats = collect_swiglu
 
     @contextmanager
     def suspend_stat_collection(self):
-        previous = self.collect_stats
-        self.set_stat_collection(False)
+        previous = self._active_stat_families
+        self.set_stat_collection(())
         try:
             yield
         finally:

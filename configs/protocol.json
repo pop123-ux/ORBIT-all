@@ -7,6 +7,7 @@
     "subset": "sample-10BT",
     "revision": null,
     "tokenizer": "gpt2",
+    "val_permille": 400,
     "note": "Set an immutable dataset revision before any run is designated paper evidence. Synthetic data is plumbing-only."
   },
   "model": {

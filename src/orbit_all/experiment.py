@@ -223,7 +223,7 @@ def run_training(
     train_gen = torch.Generator(device="cpu").manual_seed(seed * 10_003 + 17)
     if device.type == "cuda":
         torch.cuda.reset_peak_memory_stats(device)
-    scaler = torch.cuda.amp.GradScaler(enabled=device.type == "cuda")
+    scaler = torch.amp.GradScaler("cuda", enabled=device.type == "cuda")
     model.train()
     optimizer.zero_grad(set_to_none=True)
     start = time.perf_counter()

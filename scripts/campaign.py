@@ -7,7 +7,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from orbit_all.experiment import load_protocol, run_training, write_result_atomic
+from orbit_all.experiment import (
+    canonical_digest,
+    git_sha,
+    load_protocol,
+    run_training,
+    write_result_atomic,
+)
 
 
 @dataclass(frozen=True)
@@ -38,7 +44,16 @@ def load_frozen(work_dir: Path) -> dict[str, dict[str, Any]]:
         raise FileNotFoundError(
             f"{path} does not exist. Finish matched_tune and run scripts/merge.py --phase matched_tune first."
         )
-    return json.loads(path.read_text())
+    frozen = json.loads(path.read_text())
+    current = git_sha()
+    tuning_shas = {entry.get("git_sha") for entry in frozen.values()}
+    if current != "unknown" and tuning_shas != {current}:
+        raise RuntimeError(
+            "current code revision differs from the frozen matched-tuning revision. "
+            "Start a new campaign/work directory and retune rather than carrying recipes across code changes. "
+            f"current={current}, tuned={sorted(tuning_shas)}"
+        )
+    return frozen
 
 
 def grid(protocol: dict[str, Any]) -> list[dict[str, Any]]:
@@ -54,18 +69,15 @@ def frozen_hparams(frozen: dict[str, dict[str, Any]], optimizer: str) -> dict[st
 def build_tasks(phase: str, protocol: dict[str, Any], work_dir: Path) -> list[Task]:
     phases = protocol["phases"]
     if phase == "smoke":
-        h = dict(grid(protocol)[4])
-        return [Task("smoke", "dense_124m", "orbit_all", h, 0, 2)]
+        return [Task("smoke", "dense_124m", "orbit_all", dict(grid(protocol)[4]), 0, 2)]
 
     if phase == "discovery":
         spec = phases[phase]
-        tasks: list[Task] = []
-        for optimizer in spec["optimizers"]:
-            for candidate in grid(protocol)[::2]:
-                tasks.append(
-                    Task(phase, spec["model"], optimizer, dict(candidate), int(spec["seed"]), int(spec["steps"]))
-                )
-        return tasks
+        return [
+            Task(phase, spec["model"], optimizer, dict(candidate), int(spec["seed"]), int(spec["steps"]))
+            for optimizer in spec["optimizers"]
+            for candidate in grid(protocol)[::2]
+        ]
 
     if phase == "matched_tune":
         spec = phases[phase]
@@ -118,22 +130,20 @@ def build_tasks(phase: str, protocol: dict[str, Any], work_dir: Path) -> list[Ta
 
     if phase == "context_transfer":
         spec = phases[phase]
-        tasks = []
-        for block_size in spec["block_sizes"]:
-            for optimizer in ("muon", "orbit_qk", "orbit_all"):
-                for seed in spec["seeds"]:
-                    tasks.append(
-                        Task(
-                            phase,
-                            spec["model"],
-                            optimizer,
-                            frozen_hparams(frozen, optimizer),
-                            int(seed),
-                            int(spec["steps"]),
-                            int(block_size),
-                        )
-                    )
-        return tasks
+        return [
+            Task(
+                phase,
+                spec["model"],
+                optimizer,
+                frozen_hparams(frozen, optimizer),
+                int(seed),
+                int(spec["steps"]),
+                int(block_size),
+            )
+            for block_size in spec["block_sizes"]
+            for optimizer in ("muon", "orbit_qk", "orbit_all")
+            for seed in spec["seeds"]
+        ]
 
     if phase == "horizon":
         spec = phases[phase]
@@ -170,6 +180,8 @@ def main() -> None:
     if not (0 <= args.shard_id < args.num_shards):
         raise SystemExit("shard-id must satisfy 0 <= shard-id < num-shards")
     protocol = load_protocol(args.protocol)
+    protocol_digest = canonical_digest(protocol)
+    current_sha = git_sha()
     work_dir = Path(args.work_dir)
     tasks = build_tasks(args.phase, protocol, work_dir)
     owned = [t for t in tasks if shard_owner(t.task_id, args.num_shards) == args.shard_id]
@@ -188,6 +200,12 @@ def main() -> None:
     for index, task in enumerate(owned, start=1):
         out_path = work_dir / "runs" / task.phase / f"{task.task_id}.json"
         if out_path.exists():
+            existing = json.loads(out_path.read_text())
+            if existing.get("git_sha") != current_sha or existing.get("protocol_digest") != protocol_digest:
+                raise RuntimeError(
+                    f"stale result exists for {task.task_id}. Do not overwrite/reuse a task across code or "
+                    "protocol changes; choose a new work directory."
+                )
             print(f"[{index}/{len(owned)}] skip complete {task.task_id}")
             continue
         print(f"[{index}/{len(owned)}] run {task.task_id}", flush=True)

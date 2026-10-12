@@ -1,0 +1,36 @@
+{
+  "name": "legacy-orbit-paper-recipe-transfer-v0",
+  "description": "Transfer the published ORBIT Q/K optimizer recipe into the frozen ORBIT-all dense confirmation harness. This is a same-harness generational baseline, not an exact reproduction of the historical ORBIT paper model/data stack.",
+  "experiment_base_sha": "e804674c1169740d83fc3a13225aa36bf4d16df1",
+  "source": {
+    "repository": "pop123-ux/ORBIT",
+    "commit": "a6abbfc22cfcb3f874ce7bac6b36efebd3105629",
+    "config_path": "configs/paper_124m_matched.json",
+    "selected_config_id": "shared-04"
+  },
+  "model": "dense_124m",
+  "steps": 900,
+  "seeds": [500, 501, 502, 503, 504, 505, 506, 507, 508, 509],
+  "implementation_mode": "orbit_qk",
+  "result_label": "orbit_paper_recipe",
+  "hparams": {
+    "id": "orbit-paper-shared-04",
+    "matrix_lr": 0.0181771645661641,
+    "aux_lr": 0.008917991355665525,
+    "weight_decay": 0.005835070036773646
+  },
+  "optimizer_constants": {
+    "momentum": 0.95,
+    "newton_schulz_steps": 5,
+    "functional_power": 1.0,
+    "metric_eps": 0.00001,
+    "metric_condition_cap": 100.0,
+    "deltas": [1, 2, 4, 8, 16, 32, 64, 128]
+  },
+  "interpretation": {
+    "orbit_paper_recipe_vs_muon": "Published ORBIT recipe transferred into the current frozen harness.",
+    "orbit_qk_vs_orbit_paper_recipe": "Effect of retuning the Q/K-only generation inside the current shared search protocol.",
+    "orbit_all_vs_orbit_qk": "Increment from extending function-aware geometry beyond Q/K under the current matched recipe.",
+    "orbit_all_vs_orbit_paper_recipe": "Total same-harness generational improvement from the published ORBIT recipe to ORBIT-all."
+  }
+}

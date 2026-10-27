@@ -52,14 +52,14 @@ def test_all_production_optimizer_builders_step() -> None:
     configs = {
         "orbit_all": {"matrix_lr": 0.01, "aux_lr": 0.001, "weight_decay": 0.01},
         "muon_moonlight": {
-            "matrix_lr": 0.01,
+            "matrix_lr": 0.001,
             "aux_lr": 0.001,
-            "weight_decay": 0.01,
+            "weight_decay": 0.10,
         },
         "muonclip_kimi": {
-            "matrix_lr": 0.01,
+            "matrix_lr": 0.001,
             "aux_lr": 0.001,
-            "weight_decay": 0.01,
+            "weight_decay": 0.10,
         },
         "adamw": {"lr": 1e-3, "weight_decay": 0.01},
         "lion": {"lr": 1e-4, "weight_decay": 0.01},
@@ -76,7 +76,7 @@ def test_kimi_qk_clip_records_and_clips() -> None:
     model = tiny_model()
     optimizer = MoonshotMuon(
         model,
-        matrix_lr=0.01,
+        matrix_lr=0.001,
         aux_lr=0.001,
         weight_decay=0.01,
         ns_steps=2,
@@ -98,3 +98,15 @@ def test_palm_adafactor_uses_dynamic_second_moment() -> None:
         optimizer.zero_grad(set_to_none=True)
     assert optimizer.state[param]["step"] == 2
     assert torch.isfinite(param).all()
+
+
+def test_moonshot_muon_defaults_to_nesterov() -> None:
+    model = tiny_model()
+    optimizer = MoonshotMuon(
+        model,
+        matrix_lr=0.001,
+        aux_lr=0.001,
+        weight_decay=0.1,
+        ns_steps=2,
+    )
+    assert optimizer.param_groups[0]["nesterov"] is True

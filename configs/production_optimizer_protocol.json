@@ -1,6 +1,6 @@
 {
-  "name": "ORBIT-all-production-optimizer-bench-v0",
-  "status": "post-confirmation extension; not preregistered primary evidence",
+  "name": "ORBIT-all-production-optimizer-bench-v1",
+  "status": "post-confirmation secondary extension; v1 created after v0 tuning pilot and before any held-out production confirmation",
   "core_base_sha": "e804674c1169740d83fc3a13225aa36bf4d16df1",
   "data": {
     "dataset": "HuggingFaceFW/fineweb-edu",
@@ -17,9 +17,9 @@
     "n_kv_head": 12,
     "n_embd": 768,
     "mlp_hidden": 2048,
-    "dropout": 0.0,
+    "dropout": 0,
     "bias": false,
-    "rope_base": 10000.0,
+    "rope_base": 10000,
     "rope_mode": "fixed",
     "qk_norm": false,
     "stats_beta": 0.95,
@@ -31,11 +31,11 @@
   "optimizer_shared": {
     "momentum": 0.95,
     "ns_steps": 5,
-    "functional_power": 1.0,
+    "functional_power": 1,
     "metric_eps": 0.00001,
-    "metric_condition_cap": 100.0,
+    "metric_condition_cap": 100,
     "moonshot_rms_scale": 0.2,
-    "qk_clip_threshold": 100.0
+    "qk_clip_threshold": 100
   },
   "schedule": {
     "warmup_ratio": 0.05,
@@ -46,7 +46,9 @@
     "orbit_all": {
       "provenance": {
         "lab": "ORBIT-all",
-        "models": ["ORBIT-all dense 124M-class research harness"],
+        "models": [
+          "ORBIT-all dense 124M-class research harness"
+        ],
         "algorithm": "function-aware Muon extension",
         "source": "https://github.com/pop123-ux/ORBIT-all",
         "note": "Frozen to the pre-existing shared-03 recipe; not retuned after production-baseline selection."
@@ -55,25 +57,32 @@
     "muon_moonlight": {
       "provenance": {
         "lab": "Moonshot AI",
-        "models": ["Moonlight-16B-A3B"],
+        "models": [
+          "Moonlight-16B-A3B"
+        ],
         "algorithm": "Muon with weight decay and consistent Adam-RMS matching",
         "source": "https://github.com/MoonshotAI/Moonlight",
-        "note": "Same-harness implementation of disclosed Moonlight Muon mechanics, not a reproduction of Moonlight's MoE architecture or full recipe."
+        "note": "Same-harness implementation of disclosed Moonlight Muon mechanics: Nesterov momentum candidate, Newton-Schulz, weight decay, and 0.2*sqrt(max(m,n)) update-RMS scaling. v1 uses the same base LR for the matrix and auxiliary Adam-style paths in the tuning grid, matching the public Moonlight toy implementation more closely; this is still not a reproduction of Moonlight's MoE architecture or full recipe."
       }
     },
     "muonclip_kimi": {
       "provenance": {
         "lab": "Kimi Team / Moonshot AI",
-        "models": ["Kimi K2"],
+        "models": [
+          "Kimi K2"
+        ],
         "algorithm": "MuonClip",
         "source": "https://arxiv.org/abs/2507.20534",
-        "note": "Regular-MHA adaptation of Kimi K2 QK-Clip with tau=100. Kimi K2 itself uses MLA; this benchmark does not claim exact K2 recipe reproduction."
+        "note": "Regular-MHA adaptation of Kimi K2 QK-Clip with tau=100 on top of the corrected Moonshot-style Nesterov/RMS-scaled Muon base. Kimi K2 itself uses MLA; this benchmark does not claim exact K2 recipe reproduction."
       }
     },
     "adamw": {
       "provenance": {
         "lab": "Alibaba Qwen; DeepSeek; widely used elsewhere",
-        "models": ["Qwen-7B", "DeepSeek LLM 7B/67B"],
+        "models": [
+          "Qwen-7B",
+          "DeepSeek LLM 7B/67B"
+        ],
         "algorithm": "AdamW",
         "sources": [
           "https://github.com/QwenLM/Qwen/blob/main/tech_memo.md",
@@ -85,7 +94,9 @@
     "lion": {
       "provenance": {
         "lab": "MosaicML / Databricks",
-        "models": ["MPT-7B"],
+        "models": [
+          "MPT-7B"
+        ],
         "algorithm": "Lion",
         "source": "https://www.databricks.com/blog/mpt-7b",
         "note": "MPT-7B's training write-up explicitly reports Lion instead of AdamW."
@@ -94,7 +105,9 @@
     "adafactor_palm": {
       "provenance": {
         "lab": "Google Research",
-        "models": ["PaLM 8B/62B/540B"],
+        "models": [
+          "PaLM 8B/62B/540B"
+        ],
         "algorithm": "unfactorized Adafactor with parameter scaling",
         "source": "https://arxiv.org/abs/2204.02311",
         "note": "Keeps PaLM's unfactorized second moment, beta1=0.9, beta2=1-k^-0.8 and parameter-RMS scaling, but uses the common benchmark schedule."
@@ -103,7 +116,9 @@
     "adam": {
       "provenance": {
         "lab": "EleutherAI",
-        "models": ["GPT-NeoX-20B"],
+        "models": [
+          "GPT-NeoX-20B"
+        ],
         "algorithm": "Adam",
         "source": "https://github.com/EleutherAI/gpt-neox/blob/main/configs/20B.yml",
         "note": "Uses beta1=0.9, beta2=0.95 and eps=1e-8, with learning rate and decay tuned in the common harness."
@@ -112,65 +127,363 @@
   },
   "grids": {
     "orbit_all": [
-      {"id": "orbit-all-frozen-shared-03", "matrix_lr": 0.018, "aux_lr": 0.0085, "weight_decay": 0.0045}
+      {
+        "id": "orbit-all-frozen-shared-03",
+        "matrix_lr": 0.018,
+        "aux_lr": 0.0085,
+        "weight_decay": 0.0045
+      }
     ],
     "muon_moonlight": [
-      {"id": "moonlight-00", "matrix_lr": 0.012, "aux_lr": 0.00020, "weight_decay": 0.05},
-      {"id": "moonlight-01", "matrix_lr": 0.016, "aux_lr": 0.00030, "weight_decay": 0.10},
-      {"id": "moonlight-02", "matrix_lr": 0.020, "aux_lr": 0.00030, "weight_decay": 0.10},
-      {"id": "moonlight-03", "matrix_lr": 0.024, "aux_lr": 0.00040, "weight_decay": 0.10},
-      {"id": "moonlight-04", "matrix_lr": 0.028, "aux_lr": 0.00040, "weight_decay": 0.05}
+      {
+        "id": "moonlight-v1-00",
+        "matrix_lr": 0.0003,
+        "aux_lr": 0.0003,
+        "weight_decay": 0.1
+      },
+      {
+        "id": "moonlight-v1-01",
+        "matrix_lr": 0.0005,
+        "aux_lr": 0.0005,
+        "weight_decay": 0.1
+      },
+      {
+        "id": "moonlight-v1-02",
+        "matrix_lr": 0.00075,
+        "aux_lr": 0.00075,
+        "weight_decay": 0.1
+      },
+      {
+        "id": "moonlight-v1-03",
+        "matrix_lr": 0.001,
+        "aux_lr": 0.001,
+        "weight_decay": 0.1
+      },
+      {
+        "id": "moonlight-v1-04",
+        "matrix_lr": 0.0015,
+        "aux_lr": 0.0015,
+        "weight_decay": 0.1
+      },
+      {
+        "id": "moonlight-v1-05",
+        "matrix_lr": 0.002,
+        "aux_lr": 0.002,
+        "weight_decay": 0.1
+      },
+      {
+        "id": "moonlight-v1-06",
+        "matrix_lr": 0.003,
+        "aux_lr": 0.003,
+        "weight_decay": 0.1
+      },
+      {
+        "id": "moonlight-v1-07",
+        "matrix_lr": 0.001,
+        "aux_lr": 0.001,
+        "weight_decay": 0.05
+      },
+      {
+        "id": "moonlight-v1-08",
+        "matrix_lr": 0.001,
+        "aux_lr": 0.001,
+        "weight_decay": 0.01
+      }
     ],
     "muonclip_kimi": [
-      {"id": "kimi-00", "matrix_lr": 0.012, "aux_lr": 0.00020, "weight_decay": 0.05},
-      {"id": "kimi-01", "matrix_lr": 0.016, "aux_lr": 0.00030, "weight_decay": 0.10},
-      {"id": "kimi-02", "matrix_lr": 0.020, "aux_lr": 0.00030, "weight_decay": 0.10},
-      {"id": "kimi-03", "matrix_lr": 0.024, "aux_lr": 0.00040, "weight_decay": 0.10},
-      {"id": "kimi-04", "matrix_lr": 0.028, "aux_lr": 0.00040, "weight_decay": 0.05}
+      {
+        "id": "kimi-v1-00",
+        "matrix_lr": 0.0003,
+        "aux_lr": 0.0003,
+        "weight_decay": 0.1
+      },
+      {
+        "id": "kimi-v1-01",
+        "matrix_lr": 0.0005,
+        "aux_lr": 0.0005,
+        "weight_decay": 0.1
+      },
+      {
+        "id": "kimi-v1-02",
+        "matrix_lr": 0.00075,
+        "aux_lr": 0.00075,
+        "weight_decay": 0.1
+      },
+      {
+        "id": "kimi-v1-03",
+        "matrix_lr": 0.001,
+        "aux_lr": 0.001,
+        "weight_decay": 0.1
+      },
+      {
+        "id": "kimi-v1-04",
+        "matrix_lr": 0.0015,
+        "aux_lr": 0.0015,
+        "weight_decay": 0.1
+      },
+      {
+        "id": "kimi-v1-05",
+        "matrix_lr": 0.002,
+        "aux_lr": 0.002,
+        "weight_decay": 0.1
+      },
+      {
+        "id": "kimi-v1-06",
+        "matrix_lr": 0.003,
+        "aux_lr": 0.003,
+        "weight_decay": 0.1
+      },
+      {
+        "id": "kimi-v1-07",
+        "matrix_lr": 0.001,
+        "aux_lr": 0.001,
+        "weight_decay": 0.05
+      },
+      {
+        "id": "kimi-v1-08",
+        "matrix_lr": 0.001,
+        "aux_lr": 0.001,
+        "weight_decay": 0.01
+      }
     ],
     "adamw": [
-      {"id": "adamw-00", "lr": 0.00030, "weight_decay": 0.01},
-      {"id": "adamw-01", "lr": 0.00045, "weight_decay": 0.05},
-      {"id": "adamw-02", "lr": 0.00060, "weight_decay": 0.10},
-      {"id": "adamw-03", "lr": 0.00080, "weight_decay": 0.10},
-      {"id": "adamw-04", "lr": 0.00100, "weight_decay": 0.05}
+      {
+        "id": "adamw-v1-00",
+        "lr": 0.0002,
+        "weight_decay": 0.1
+      },
+      {
+        "id": "adamw-v1-01",
+        "lr": 0.0003,
+        "weight_decay": 0.1
+      },
+      {
+        "id": "adamw-v1-02",
+        "lr": 0.00045,
+        "weight_decay": 0.1
+      },
+      {
+        "id": "adamw-v1-03",
+        "lr": 0.0006,
+        "weight_decay": 0.1
+      },
+      {
+        "id": "adamw-v1-04",
+        "lr": 0.0008,
+        "weight_decay": 0.1
+      },
+      {
+        "id": "adamw-v1-05",
+        "lr": 0.001,
+        "weight_decay": 0.1
+      },
+      {
+        "id": "adamw-v1-06",
+        "lr": 0.0012,
+        "weight_decay": 0.1
+      },
+      {
+        "id": "adamw-v1-07",
+        "lr": 0.0006,
+        "weight_decay": 0.05
+      },
+      {
+        "id": "adamw-v1-08",
+        "lr": 0.0006,
+        "weight_decay": 0.01
+      }
     ],
     "lion": [
-      {"id": "lion-00", "lr": 0.00005, "weight_decay": 0.01},
-      {"id": "lion-01", "lr": 0.00008, "weight_decay": 0.05},
-      {"id": "lion-02", "lr": 0.00012, "weight_decay": 0.10},
-      {"id": "lion-03", "lr": 0.00018, "weight_decay": 0.10},
-      {"id": "lion-04", "lr": 0.00025, "weight_decay": 0.05}
+      {
+        "id": "lion-v1-00",
+        "lr": 0.00008,
+        "weight_decay": 0.1
+      },
+      {
+        "id": "lion-v1-01",
+        "lr": 0.0001,
+        "weight_decay": 0.1
+      },
+      {
+        "id": "lion-v1-02",
+        "lr": 0.00012,
+        "weight_decay": 0.1
+      },
+      {
+        "id": "lion-v1-03",
+        "lr": 0.00015,
+        "weight_decay": 0.1
+      },
+      {
+        "id": "lion-v1-04",
+        "lr": 0.00018,
+        "weight_decay": 0.1
+      },
+      {
+        "id": "lion-v1-05",
+        "lr": 0.0002,
+        "weight_decay": 0.1
+      },
+      {
+        "id": "lion-v1-06",
+        "lr": 0.00022,
+        "weight_decay": 0.1
+      },
+      {
+        "id": "lion-v1-07",
+        "lr": 0.00018,
+        "weight_decay": 0.05
+      },
+      {
+        "id": "lion-v1-08",
+        "lr": 0.00018,
+        "weight_decay": 0.01
+      }
     ],
     "adafactor_palm": [
-      {"id": "palm-00", "lr": 0.003, "weight_decay": 0.00},
-      {"id": "palm-01", "lr": 0.005, "weight_decay": 0.01},
-      {"id": "palm-02", "lr": 0.008, "weight_decay": 0.01},
-      {"id": "palm-03", "lr": 0.012, "weight_decay": 0.05},
-      {"id": "palm-04", "lr": 0.018, "weight_decay": 0.05}
+      {
+        "id": "palm-v1-00",
+        "lr": 0.012,
+        "weight_decay": 0.05
+      },
+      {
+        "id": "palm-v1-01",
+        "lr": 0.018,
+        "weight_decay": 0.05
+      },
+      {
+        "id": "palm-v1-02",
+        "lr": 0.024,
+        "weight_decay": 0.05
+      },
+      {
+        "id": "palm-v1-03",
+        "lr": 0.032,
+        "weight_decay": 0.05
+      },
+      {
+        "id": "palm-v1-04",
+        "lr": 0.045,
+        "weight_decay": 0.05
+      },
+      {
+        "id": "palm-v1-05",
+        "lr": 0.064,
+        "weight_decay": 0.05
+      },
+      {
+        "id": "palm-v1-06",
+        "lr": 0.032,
+        "weight_decay": 0.01
+      },
+      {
+        "id": "palm-v1-07",
+        "lr": 0.032,
+        "weight_decay": 0
+      },
+      {
+        "id": "palm-v1-08",
+        "lr": 0.032,
+        "weight_decay": 0.1
+      }
     ],
     "adam": [
-      {"id": "adam-00", "lr": 0.00030, "weight_decay": 0.00},
-      {"id": "adam-01", "lr": 0.00045, "weight_decay": 0.01},
-      {"id": "adam-02", "lr": 0.00060, "weight_decay": 0.01},
-      {"id": "adam-03", "lr": 0.00080, "weight_decay": 0.05},
-      {"id": "adam-04", "lr": 0.00100, "weight_decay": 0.05}
+      {
+        "id": "adam-v1-00",
+        "lr": 0.0001,
+        "weight_decay": 0
+      },
+      {
+        "id": "adam-v1-01",
+        "lr": 0.00015,
+        "weight_decay": 0
+      },
+      {
+        "id": "adam-v1-02",
+        "lr": 0.0002,
+        "weight_decay": 0
+      },
+      {
+        "id": "adam-v1-03",
+        "lr": 0.00025,
+        "weight_decay": 0
+      },
+      {
+        "id": "adam-v1-04",
+        "lr": 0.0003,
+        "weight_decay": 0
+      },
+      {
+        "id": "adam-v1-05",
+        "lr": 0.0004,
+        "weight_decay": 0
+      },
+      {
+        "id": "adam-v1-06",
+        "lr": 0.0003,
+        "weight_decay": 0.01
+      },
+      {
+        "id": "adam-v1-07",
+        "lr": 0.0003,
+        "weight_decay": 0.05
+      },
+      {
+        "id": "adam-v1-08",
+        "lr": 0.0003,
+        "weight_decay": 0.1
+      }
     ]
   },
   "phases": {
-    "smoke": {"steps": 2, "synthetic_only": true},
-    "tune": {"steps": 900, "seed": 900},
-    "confirm": {"steps": 900, "seeds": [910, 911, 912, 913, 914, 915, 916, 917, 918, 919]}
+    "smoke": {
+      "steps": 2,
+      "synthetic_only": true
+    },
+    "tune": {
+      "steps": 900,
+      "seed": 900
+    },
+    "confirm": {
+      "steps": 900,
+      "seeds": [
+        910,
+        911,
+        912,
+        913,
+        914,
+        915,
+        916,
+        917,
+        918,
+        919
+      ]
+    }
   },
   "statistics": {
     "estimand": "paired final validation loss difference ORBIT-all minus each production optimizer on held-out seeds",
     "interval": "two-sided 95% Student-t confidence interval over paired seed differences",
-    "secondary": ["win counts", "wall-clock time", "peak allocated CUDA memory"],
+    "secondary": [
+      "win counts",
+      "wall-clock time",
+      "peak allocated CUDA memory"
+    ],
     "multiplicity": "post-confirmation secondary benchmark; report all comparisons transparently rather than treating p-values as a new preregistered family"
   },
   "interpretation": {
     "scope": "same-model, same-data, same-budget optimizer-algorithm benchmark",
     "not_claimed": "This is not an exact reproduction of any lab's full model architecture, batch schedule, data mixture, distributed system, or training recipe.",
-    "fairness": "Production baselines are independently tuned on seed 900. ORBIT-all is conservatively frozen to the earlier shared-03 recipe and receives no new post-hoc tuning before held-out confirmation."
+    "fairness": "v1 is a pre-confirmation repair of the production baseline benchmark after inspecting tuning seed 900 only. ORBIT-all remains conservatively frozen to the earlier shared-03 recipe. Each production baseline receives nine predeclared candidates; no held-out seeds 910-919 were inspected before freezing v1."
+  },
+  "pilot_history": {
+    "v0_git_sha": "e702df7535b75d29c6e024bda7965bd6a0234f73",
+    "v0_outcome": "tuning-only pilot on seed 900; no seeds 910-919 were evaluated",
+    "reason_for_v1": [
+      "Moonlight/Kimi RMS-scaled Muon used an inappropriately high base-LR grid",
+      "Moonshot-style Muon candidate needed the recommended Nesterov look-ahead before Newton-Schulz",
+      "PaLM Adafactor selected the upper LR boundary",
+      "Adam LR and weight decay were too entangled to identify the cause of its boundary winner"
+    ],
+    "integrity_rule": "ORBIT-all remains frozen to shared-03 and receives no tuning benefit from the pilot."
   }
 }

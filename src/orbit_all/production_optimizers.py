@@ -150,6 +150,7 @@ class MoonshotMuon(torch.optim.Optimizer):
         aux_lr: float,
         weight_decay: float,
         momentum: float = 0.95,
+        nesterov: bool = True,
         ns_steps: int = 5,
         rms_scale: float = 0.2,
         adamw_betas: tuple[float, float] = (0.9, 0.95),
@@ -168,6 +169,7 @@ class MoonshotMuon(torch.optim.Optimizer):
                 aux_lr_ratio=float(aux_lr) / float(matrix_lr),
                 weight_decay=float(weight_decay),
                 momentum=float(momentum),
+                nesterov=bool(nesterov),
                 ns_steps=int(ns_steps),
                 rms_scale=float(rms_scale),
                 betas=tuple(float(x) for x in adamw_betas),
@@ -328,7 +330,12 @@ class MoonshotMuon(torch.optim.Optimizer):
                 if "momentum_buffer" not in state:
                     state["momentum_buffer"] = torch.zeros_like(grad)
                 momentum = state["momentum_buffer"].mul_(group["momentum"]).add_(grad)
-                update = newton_schulz(momentum, group["ns_steps"])
+                candidate = (
+                    grad.add(momentum, alpha=group["momentum"])
+                    if group["nesterov"]
+                    else momentum
+                )
+                update = newton_schulz(candidate, group["ns_steps"])
                 scale = float(group["rms_scale"]) * math.sqrt(
                     float(max(param.shape[0], param.shape[1]))
                 )

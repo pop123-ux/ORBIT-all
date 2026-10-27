@@ -372,7 +372,6 @@ def build_production_optimizer(model, name: str, hparams: dict, shared: dict):
             aux_lr=float(hparams["aux_lr"]),
             weight_decay=float(hparams["weight_decay"]),
             momentum=float(shared["momentum"]),
-            nesterov=True,
             ns_steps=int(shared["ns_steps"]),
             functional_power=float(shared["functional_power"]),
             metric_eps=float(shared["metric_eps"]),
